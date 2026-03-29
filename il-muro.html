@@ -1,0 +1,1031 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Il Muro ✨ — Bacheca Pubblica</title>
+  <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;600;700&family=Nunito:wght@700;800;900&display=swap" rel="stylesheet">
+
+  <!--
+  ╔══════════════════════════════════════════════════════════════╗
+  ║              🔧 CONFIGURAZIONE FIREBASE                      ║
+  ║                                                              ║
+  ║  1. Vai su https://console.firebase.google.com               ║
+  ║  2. Crea un nuovo progetto (gratis)                          ║
+  ║  3. Crea un database Firestore in modalità "test"            ║
+  ║  4. Vai su Impostazioni progetto → Le tue app → Web (</>)    ║
+  ║  5. Copia i valori e sostituiscili qui sotto                 ║
+  ║                                                              ║
+  ║  💡 Il codice admin per cancellare tutto è: murosegreto      ║
+  ║     (cambialo nella variabile ADMIN_CODE qui sotto)          ║
+  ╚══════════════════════════════════════════════════════════════╝
+  -->
+  <script>
+    const FIREBASE_CONFIG = {
+      apiKey:            "AIzaSyBZ4mOIVEwjLbTiy9ujpM_Zo2T5aTP3FhU",
+      authDomain:        "il-muro-9f7f7.firebaseapp.com",
+      projectId:         "il-muro-9f7f7",
+      storageBucket:     "il-muro-9f7f7.firebasestorage.app",
+      messagingSenderId: "598561329257",
+      appId:             "1:598561329257:web:b15697ae29e2fddb0892f8"
+    };
+    const ADMIN_CODE     = "murosegreto";   // ← cambia il codice segreto
+    const COLLECTION     = "muro-items";    // nome collezione Firestore
+  </script>
+
+  <style>
+    :root { --wall-base:#F0E4CF; }
+    *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+    html, body {
+      width:100%; height:100%; overflow:hidden;
+      font-family:'Nunito',sans-serif;
+      -webkit-tap-highlight-color:transparent;
+      touch-action:none;
+    }
+
+    /* ── WALL ── */
+    #wall {
+      position:fixed; inset:0; overflow:hidden;
+      background-color:var(--wall-base);
+      background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='132' height='66'%3E%3Crect width='132' height='66' fill='%23D9C4A3'/%3E%3Crect x='2' y='2' width='61' height='28' rx='2' fill='%23EDD8BE' stroke='%23C8AA88' stroke-width='0.7'/%3E%3Crect x='69' y='2' width='61' height='28' rx='2' fill='%23E8D2BA' stroke='%23C8AA88' stroke-width='0.7'/%3E%3Crect x='-28' y='36' width='61' height='28' rx='2' fill='%23EAD5BC' stroke='%23C8AA88' stroke-width='0.7'/%3E%3Crect x='37' y='36' width='61' height='28' rx='2' fill='%23EDD8BE' stroke='%23C8AA88' stroke-width='0.7'/%3E%3Crect x='102' y='36' width='61' height='28' rx='2' fill='%23E8D2BA' stroke='%23C8AA88' stroke-width='0.7'/%3E%3C/svg%3E");
+      background-size:132px 66px;
+      cursor:grab; user-select:none; -webkit-user-select:none;
+    }
+    #wall.panning { cursor:grabbing; }
+    #wall::after {
+      content:''; position:fixed; inset:0;
+      background:radial-gradient(ellipse at 50% 50%,transparent 56%,rgba(0,0,0,0.10) 100%);
+      pointer-events:none; z-index:1;
+    }
+
+    /* ── INFINITE CANVAS ── */
+    #canvas {
+      position:absolute; left:0; top:0; width:0; height:0;
+      transform-origin:0 0; will-change:transform;
+    }
+
+    /* ── ITEMS ── */
+    .item {
+      position:absolute; touch-action:none;
+      will-change:transform; transform-origin:center center; z-index:10;
+    }
+    .postit {
+      width:192px; min-height:192px; border-radius:3px 3px 3px 22px;
+      padding:16px 14px 26px 14px; cursor:grab; position:relative;
+      box-shadow:2px 3px 0 rgba(0,0,0,0.06),4px 8px 16px rgba(0,0,0,0.14),8px 16px 32px rgba(0,0,0,0.07);
+      transition:box-shadow 0.2s;
+    }
+    .postit:hover { box-shadow:3px 5px 0 rgba(0,0,0,0.07),6px 12px 24px rgba(0,0,0,0.22),10px 20px 40px rgba(0,0,0,0.09); }
+    .item.dragging .postit,
+    .item.dragging .sticker-wrap,
+    .item.dragging .photo-wrap { cursor:grabbing!important; box-shadow:10px 20px 50px rgba(0,0,0,0.30),16px 28px 60px rgba(0,0,0,0.12)!important; }
+    .postit::before {
+      content:''; position:absolute; top:11px; left:50%; transform:translateX(-50%);
+      width:10px; height:10px;
+      background:radial-gradient(circle at 35% 32%,rgba(255,255,255,0.55) 12%,rgba(0,0,0,0.28) 100%);
+      border-radius:50%; box-shadow:0 1px 4px rgba(0,0,0,0.25),inset 0 -1px 2px rgba(0,0,0,0.18); z-index:5;
+    }
+    .postit-fold { position:absolute; bottom:0; right:0; width:30px; height:30px; overflow:hidden; pointer-events:none; }
+    .postit-fold::before {
+      content:''; position:absolute; bottom:0; right:0; width:0; height:0; border-style:solid;
+      border-width:0 0 30px 30px; border-color:transparent transparent rgba(0,0,0,0.14) transparent;
+    }
+    .postit-fold::after {
+      content:''; position:absolute; bottom:0; right:0; width:0; height:0; border-style:solid;
+      border-width:0 0 30px 30px; border-color:transparent transparent rgba(255,255,255,0.6) transparent;
+    }
+    .postit textarea {
+      width:100%; background:transparent; border:none; outline:none; resize:none;
+      font-family:'Caveat',cursive; font-size:20px; font-weight:600;
+      color:rgba(0,0,0,0.72); line-height:1.45; cursor:text;
+      min-height:134px; padding:0; margin-top:10px; letter-spacing:0.01em;
+    }
+    .postit textarea::placeholder { color:rgba(0,0,0,0.28); }
+
+    .sticker-wrap {
+      font-size:52px; line-height:1; cursor:grab; padding:4px;
+      filter:drop-shadow(2px 4px 6px rgba(0,0,0,0.20)); transition:filter 0.15s;
+    }
+    .sticker-wrap:hover { filter:drop-shadow(3px 6px 12px rgba(0,0,0,0.28)); }
+
+    .photo-wrap {
+      background:white; padding:9px 9px 34px 9px; cursor:grab; border-radius:2px;
+      box-shadow:3px 6px 18px rgba(0,0,0,0.18),6px 12px 32px rgba(0,0,0,0.08); transition:box-shadow 0.2s;
+    }
+    .photo-wrap:hover { box-shadow:5px 10px 28px rgba(0,0,0,0.24),8px 18px 44px rgba(0,0,0,0.10); }
+    .photo-wrap img { display:block; width:166px; height:166px; object-fit:cover; }
+    .photo-caption { font-family:'Caveat',cursive; font-size:15px; color:#555; text-align:center; margin-top:6px; outline:none; min-height:18px; }
+    .photo-caption:empty::before { content:attr(data-placeholder); color:#bbb; }
+
+    .del-btn {
+      position:absolute; top:-12px; right:-12px; width:26px; height:26px;
+      background:#FF4D4D; border:2.5px solid white; border-radius:50%;
+      display:flex; align-items:center; justify-content:center;
+      font-size:11px; font-weight:900; color:white; cursor:pointer;
+      opacity:0; transition:opacity 0.18s,transform 0.15s;
+      box-shadow:0 2px 8px rgba(255,77,77,0.45); z-index:50;
+    }
+    .item:hover .del-btn { opacity:1; }
+    .del-btn:hover { transform:scale(1.22); }
+
+    /* ── TOOLBAR ── */
+    #toolbar {
+      position:fixed; bottom:22px; left:50%; transform:translateX(-50%);
+      background:rgba(255,255,255,0.94);
+      backdrop-filter:blur(18px); -webkit-backdrop-filter:blur(18px);
+      border-radius:60px; padding:9px 18px;
+      display:flex; align-items:center; gap:6px;
+      box-shadow:0 4px 24px rgba(0,0,0,0.13),0 1px 4px rgba(0,0,0,0.07),inset 0 1px 0 rgba(255,255,255,0.95);
+      z-index:2000; border:1.5px solid rgba(255,255,255,0.88);
+      animation:toolbar-enter 0.55s 0.2s cubic-bezier(0.34,1.56,0.64,1) both;
+    }
+    @keyframes toolbar-enter { from{opacity:0;transform:translateX(-50%) translateY(28px)} to{opacity:1;transform:translateX(-50%) translateY(0)} }
+    .tb-btn {
+      display:flex; align-items:center; gap:5px; padding:8px 14px;
+      border:none; border-radius:40px; font-family:'Nunito',sans-serif;
+      font-size:13px; font-weight:800; cursor:pointer; transition:all 0.15s; white-space:nowrap; outline:none;
+    }
+    .tb-btn:active { transform:scale(0.9); }
+    .tb-main { background:linear-gradient(135deg,#FFE566 0%,#FFC933 100%); color:#5C3D00; box-shadow:0 2px 10px rgba(255,200,50,0.45); }
+    .tb-main:hover { background:linear-gradient(135deg,#FFEC80 0%,#FFD555 100%); box-shadow:0 3px 14px rgba(255,200,50,0.55); }
+    .tb-sec { background:rgba(0,0,0,0.055); color:#444; }
+    .tb-sec:hover { background:rgba(0,0,0,0.09); }
+    .tb-sec.active { background:rgba(255,210,50,0.22); color:#5C3D00; }
+    .tb-sep { width:1px; height:26px; background:rgba(0,0,0,0.09); margin:0 2px; }
+    @media(max-width:520px) { .tb-label{display:none} .tb-btn{padding:8px 10px} #toolbar{gap:3px;padding:8px 12px} }
+
+    /* ── PANELS ── */
+    .panel {
+      position:fixed; bottom:80px; left:50%; transform:translateX(-50%) translateY(10px);
+      background:white; border-radius:20px; padding:16px;
+      box-shadow:0 8px 32px rgba(0,0,0,0.14),0 2px 8px rgba(0,0,0,0.07);
+      z-index:1998; opacity:0; pointer-events:none;
+      transition:opacity 0.2s,transform 0.22s cubic-bezier(0.34,1.56,0.64,1);
+      border:1.5px solid rgba(0,0,0,0.05);
+    }
+    .panel.visible { opacity:1; pointer-events:all; transform:translateX(-50%) translateY(0); }
+    #color-panel { display:flex; gap:10px; align-items:center; padding:14px 18px; }
+    .cdot {
+      width:30px; height:30px; border-radius:50%; cursor:pointer;
+      transition:transform 0.15s,box-shadow 0.15s; box-shadow:0 2px 7px rgba(0,0,0,0.16); border:2px solid rgba(255,255,255,0.5);
+    }
+    .cdot:hover { transform:scale(1.2); box-shadow:0 3px 12px rgba(0,0,0,0.22); }
+    .cdot.sel { box-shadow:0 0 0 3px white,0 0 0 5.5px rgba(0,0,0,0.38); transform:scale(1.18); }
+    #sticker-panel { width:min(390px,92vw); padding:16px 16px 12px; }
+    #sticker-panel .panel-title { font-size:11px; font-weight:900; color:#bbb; letter-spacing:0.08em; text-transform:uppercase; margin-bottom:12px; }
+    .sticker-grid { display:grid; grid-template-columns:repeat(8,1fr); gap:3px; }
+    @media(max-width:400px) { .sticker-grid{grid-template-columns:repeat(6,1fr)} }
+    .sopt { font-size:28px; text-align:center; padding:5px 2px; border-radius:10px; cursor:pointer; transition:background 0.1s,transform 0.12s; line-height:1.2; }
+    .sopt:hover { background:rgba(0,0,0,0.06); transform:scale(1.28); }
+
+    /* ── ANIMATIONS ── */
+    @keyframes pop-in {
+      0%{opacity:0;transform:rotate(var(--rot,0deg)) scale(0.3)}
+      60%{opacity:1;transform:rotate(var(--rot,0deg)) scale(1.12)}
+      80%{transform:rotate(var(--rot,0deg)) scale(0.95)}
+      100%{transform:rotate(var(--rot,0deg)) scale(1)}
+    }
+    @keyframes bounce-land {
+      0%{transform:rotate(var(--rot,0deg)) translateY(-10px) scale(1.07)}
+      55%{transform:rotate(var(--rot,0deg)) translateY(5px) scale(0.96)}
+      80%{transform:rotate(var(--rot,0deg)) translateY(-2px) scale(1.01)}
+      100%{transform:rotate(var(--rot,0deg)) translateY(0) scale(1)}
+    }
+    .anim-pop  { animation:pop-in      0.52s cubic-bezier(0.34,1.56,0.64,1) forwards; }
+    .anim-land { animation:bounce-land 0.46s cubic-bezier(0.22,1,0.36,1) forwards; }
+
+    /* ── DUST MOTES ── */
+    .mote { position:fixed; border-radius:50%; pointer-events:none; background:rgba(255,220,160,0.4); animation:mote-drift linear infinite; }
+    @keyframes mote-drift { 0%{opacity:0;transform:translate(0,0)} 15%{opacity:0.65} 85%{opacity:0.35} 100%{opacity:0;transform:translate(var(--dx),var(--dy))} }
+
+    /* ── TOAST ── */
+    #toast {
+      position:fixed; top:20px; left:50%; transform:translateX(-50%) translateY(-70px);
+      background:rgba(28,28,28,0.88); color:white; padding:10px 22px; border-radius:40px;
+      font-size:14px; font-weight:700; transition:transform 0.32s cubic-bezier(0.34,1.56,0.64,1);
+      z-index:9999; pointer-events:none; backdrop-filter:blur(8px);
+    }
+    #toast.show { transform:translateX(-50%) translateY(0); }
+
+    /* ── HINT ── */
+    #hint {
+      position:fixed; top:22px; left:50%; transform:translateX(-50%);
+      background:rgba(255,255,255,0.92); backdrop-filter:blur(8px);
+      border-radius:40px; padding:10px 22px; font-size:14px; font-weight:700; color:#666;
+      box-shadow:0 3px 16px rgba(0,0,0,0.10); pointer-events:none;
+      animation:hint-anim 6.5s ease forwards; z-index:2000; white-space:nowrap;
+      border:1.5px solid rgba(255,255,255,0.95);
+    }
+    @keyframes hint-anim {
+      0%{opacity:0;transform:translateX(-50%) translateY(-18px)}
+      12%{opacity:1;transform:translateX(-50%) translateY(0)}
+      75%{opacity:1} 100%{opacity:0;transform:translateX(-50%) translateY(-10px)}
+    }
+
+    /* ── TOP HUD ── */
+    .hud-pill {
+      position:fixed; top:20px;
+      background:rgba(255,255,255,0.82); backdrop-filter:blur(8px);
+      border-radius:40px; padding:7px 14px;
+      font-size:12px; font-weight:800; color:#888;
+      box-shadow:0 2px 10px rgba(0,0,0,0.09); z-index:500;
+      border:1.5px solid rgba(255,255,255,0.88);
+      display:flex; align-items:center; gap:6px;
+    }
+    #count-badge { left:20px; pointer-events:none; }
+    #btn-home    { right:20px; cursor:pointer; transition:all 0.15s; }
+    #btn-home:hover { color:#444; box-shadow:0 3px 14px rgba(0,0,0,0.14); }
+    button.hud-pill { border:1.5px solid rgba(255,255,255,0.88); }
+
+    /* ── CONNECTIVITY DOT ── */
+    #conn-dot {
+      width:8px; height:8px; border-radius:50%;
+      background:#ccc; transition:background 0.4s;
+      flex-shrink:0;
+    }
+    #conn-dot.online  { background:#44cc77; box-shadow:0 0 0 2px rgba(68,204,119,0.25); }
+    #conn-dot.offline { background:#ff5555; box-shadow:0 0 0 2px rgba(255,85,85,0.25); }
+    #conn-dot.syncing { background:#FFBB33; box-shadow:0 0 0 2px rgba(255,187,51,0.25); animation:pulse 0.8s ease-in-out infinite alternate; }
+    @keyframes pulse { from{opacity:1} to{opacity:0.4} }
+
+    /* ── PAN INDICATOR ── */
+    #pan-ind {
+      position:fixed; bottom:90px; right:16px; background:rgba(255,255,255,0.7);
+      backdrop-filter:blur(6px); border-radius:10px; padding:5px 10px;
+      font-size:11px; font-weight:800; color:#bbb; pointer-events:none; z-index:500;
+      transition:opacity 0.5s; opacity:0; border:1px solid rgba(255,255,255,0.8);
+    }
+
+    /* ── CONTEXT MENU ── */
+    #ctx-menu {
+      position:fixed; background:white; border-radius:14px; padding:6px;
+      box-shadow:0 6px 28px rgba(0,0,0,0.14); z-index:9000;
+      display:none; min-width:160px; border:1px solid rgba(0,0,0,0.06);
+    }
+    #ctx-menu.open { display:block; animation:ctx-pop 0.18s cubic-bezier(0.34,1.56,0.64,1); }
+    @keyframes ctx-pop { from{opacity:0;transform:scale(0.88)} to{opacity:1;transform:scale(1)} }
+    .ctx-item { padding:9px 14px; border-radius:9px; font-size:14px; font-weight:700; color:#444; cursor:pointer; display:flex; align-items:center; gap:8px; transition:background 0.1s; }
+    .ctx-item:hover { background:rgba(0,0,0,0.055); }
+    .ctx-item.danger { color:#e03030; }
+    .ctx-sep { height:1px; background:rgba(0,0,0,0.07); margin:4px 0; }
+
+    /* ── MODALS ── */
+    .modal-overlay {
+      display:none; position:fixed; inset:0;
+      background:rgba(0,0,0,0.45); backdrop-filter:blur(6px);
+      z-index:10000; align-items:center; justify-content:center;
+    }
+    .modal-overlay.open { display:flex; }
+    .modal-box {
+      background:#fff; border-radius:24px; padding:32px 28px 24px;
+      width:min(340px,90vw); box-shadow:0 16px 60px rgba(0,0,0,0.22);
+      text-align:center; animation:ctx-pop 0.25s cubic-bezier(0.34,1.56,0.64,1);
+    }
+    .modal-icon { font-size:38px; margin-bottom:10px; }
+    .modal-title { font-size:18px; font-weight:900; color:#222; margin-bottom:6px; }
+    .modal-sub { font-size:13px; font-weight:700; color:#999; margin-bottom:20px; line-height:1.5; }
+    .modal-input {
+      width:100%; padding:12px 16px; border:2px solid #eee; border-radius:14px;
+      font-family:'Nunito',sans-serif; font-size:15px; font-weight:700;
+      outline:none; color:#333; transition:border 0.2s; box-sizing:border-box;
+    }
+    .modal-input:focus { border-color:#FFD555; }
+    .modal-err { font-size:12px; font-weight:800; color:#e03030; margin-top:8px; min-height:16px; }
+    .modal-actions { display:flex; gap:10px; margin-top:16px; }
+    .modal-btn {
+      flex:1; padding:12px; border:none; border-radius:14px;
+      font-family:'Nunito',sans-serif; font-size:14px; font-weight:800; cursor:pointer;
+    }
+    .modal-btn.cancel { background:#f0f0f0; color:#666; }
+    .modal-btn.danger { background:linear-gradient(135deg,#FF6B6B,#e03030); color:#fff; box-shadow:0 4px 16px rgba(224,48,48,0.35); }
+
+    /* ── SETUP BANNER (when Firebase not configured) ── */
+    #setup-banner {
+      position:fixed; inset:0; background:rgba(255,248,235,0.98);
+      z-index:20000; display:flex; flex-direction:column;
+      align-items:center; justify-content:center; padding:24px; text-align:center;
+    }
+    #setup-banner h1 { font-size:28px; font-weight:900; color:#5C3D00; margin:12px 0 8px; }
+    #setup-banner p  { font-size:14px; font-weight:700; color:#888; max-width:420px; line-height:1.6; margin-bottom:8px; }
+    #setup-banner .steps {
+      background:white; border-radius:16px; padding:20px 24px; text-align:left;
+      box-shadow:0 4px 20px rgba(0,0,0,0.08); max-width:440px; width:100%; margin-top:16px;
+    }
+    #setup-banner .steps ol { padding-left:20px; }
+    #setup-banner .steps li { font-size:13px; font-weight:700; color:#555; margin-bottom:8px; line-height:1.5; }
+    #setup-banner .steps a { color:#F5A623; text-decoration:none; }
+    #setup-banner code { background:#FFF3D6; padding:2px 6px; border-radius:6px; font-size:12px; color:#8B5E00; }
+  </style>
+</head>
+<body>
+
+<!-- SETUP BANNER (shown when Firebase not configured) -->
+<div id="setup-banner" style="display:none;">
+  <div style="font-size:52px;">🧱</div>
+  <h1>Il Muro — Setup Firebase</h1>
+  <p>Per il sync in tempo reale hai bisogno di un progetto Firebase gratuito.<br>Segui questi passaggi (5 minuti):</p>
+  <div class="steps">
+    <ol>
+      <li>Vai su <a href="https://console.firebase.google.com" target="_blank">console.firebase.google.com</a> e crea un progetto</li>
+      <li>Nel progetto, vai su <strong>Firestore Database</strong> → Crea database → Modalità test</li>
+      <li>Vai su <strong>Impostazioni progetto</strong> → Le tue app → icona Web <code>&lt;/&gt;</code></li>
+      <li>Registra l'app e copia i valori <code>firebaseConfig</code></li>
+      <li>Aprì questo file HTML in un editor e incolla i valori nella variabile <code>FIREBASE_CONFIG</code> in cima</li>
+    </ol>
+  </div>
+</div>
+
+<div id="wall"><div id="canvas"></div></div>
+
+<!-- TOOLBAR -->
+<div id="toolbar">
+  <button class="tb-btn tb-main" id="btn-postit">📝<span class="tb-label"> Post-it</span></button>
+  <div class="tb-sep"></div>
+  <button class="tb-btn tb-sec" id="btn-color">🎨<span class="tb-label"> Colore</span></button>
+  <button class="tb-btn tb-sec" id="btn-sticker">✨<span class="tb-label"> Sticker</span></button>
+  <button class="tb-btn tb-sec" id="btn-photo">📷<span class="tb-label"> Foto</span></button>
+  <div class="tb-sep"></div>
+  <button class="tb-btn tb-sec" id="btn-sound">🔊</button>
+  <button class="tb-btn tb-sec" id="btn-clear" style="color:#d04040">🗑️</button>
+</div>
+
+<!-- COLOR PANEL -->
+<div class="panel" id="color-panel">
+  <div class="cdot sel" data-c="#FFE566" style="background:#FFE566"></div>
+  <div class="cdot" data-c="#FFB3CC" style="background:#FFB3CC"></div>
+  <div class="cdot" data-c="#A8D8FF" style="background:#A8D8FF"></div>
+  <div class="cdot" data-c="#FFCB8A" style="background:#FFCB8A"></div>
+  <div class="cdot" data-c="#B8F5D0" style="background:#B8F5D0"></div>
+  <div class="cdot" data-c="#D8AAFF" style="background:#D8AAFF"></div>
+</div>
+
+<!-- STICKER PANEL -->
+<div class="panel" id="sticker-panel">
+  <div class="panel-title">Scegli uno sticker</div>
+  <div class="sticker-grid" id="sticker-grid"></div>
+</div>
+
+<input type="file" id="photo-input" accept="image/*" style="display:none">
+<div id="toast"></div>
+
+<!-- HUD -->
+<div class="hud-pill" id="count-badge">
+  <div id="conn-dot"></div>
+  <span id="count-text">Connessione…</span>
+</div>
+<button class="hud-pill" id="btn-home">🏠 <span>Centro</span></button>
+<div id="pan-ind">0, 0</div>
+
+<!-- CONTEXT MENU -->
+<div id="ctx-menu">
+  <div class="ctx-item" id="ctx-color">🎨 Cambia colore</div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item danger" id="ctx-del">🗑️ Elimina</div>
+</div>
+
+<!-- ADMIN MODAL -->
+<div class="modal-overlay" id="admin-overlay">
+  <div class="modal-box">
+    <div class="modal-icon">🔐</div>
+    <div class="modal-title">Codice segreto</div>
+    <div class="modal-sub">Solo chi conosce il codice<br>può cancellare l'intero muro</div>
+    <input class="modal-input" id="admin-input" type="password" placeholder="Inserisci il codice…">
+    <div class="modal-err" id="admin-err"></div>
+    <div class="modal-actions">
+      <button class="modal-btn cancel" id="admin-cancel">Annulla</button>
+      <button class="modal-btn danger" id="admin-confirm">Cancella tutto</button>
+    </div>
+  </div>
+</div>
+
+<!-- Firebase SDK (compat) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+
+<script>
+/* ═══════════════════════════════════════════════════════
+   IL MURO v4 — Real-time Firebase + Infinite Canvas
+   ═══════════════════════════════════════════════════════ */
+
+const PAN_KEY  = 'muro-v4-pan';
+const UID_KEY  = 'muro-v4-uid';
+const VIS_KEY  = 'muro-v4-visited';
+
+const EMOJIS = [
+  '❤️','🧡','💛','💚','💙','💜','🖤','🤍',
+  '⭐','🌟','✨','💫','🔥','⚡','🌈','☀️',
+  '😊','😂','🥰','😎','🤩','🥳','😴','🤔',
+  '🫶','🎉','🎈','🎊','🎨','🎭','🦋','🌸',
+  '🌺','🍕','🍦','🍩','🍓','🧁','☕','🧋',
+  '🦄','🐱','🐶','🐸','🦊','🐼','🦁','🐧',
+  '🌙','🪐','🚀','🏆','💎','🎸','🎯','🌊'
+];
+
+/* ── User ID ── */
+function getUID() {
+  let uid = localStorage.getItem(UID_KEY);
+  if (!uid) { uid = 'u_' + Math.random().toString(36).slice(2) + Date.now().toString(36); localStorage.setItem(UID_KEY, uid); }
+  return uid;
+}
+const MY_ID = getUID();
+
+/* ── DOM ── */
+const wallEl      = document.getElementById('wall');
+const canvasEl    = document.getElementById('canvas');
+const panIndEl    = document.getElementById('pan-ind');
+const connDot     = document.getElementById('conn-dot');
+const countText   = document.getElementById('count-text');
+
+/* ── State ── */
+let db, colRef;
+let domItems   = new Map();   // firestoreId → { data, el }
+let maxZ       = 100;
+let selColor   = '#FFE566';
+let soundOn    = true;
+let audioCtx   = null;
+let ctxTgt     = null;
+let myDragging = new Set();   // IDs currently being dragged by ME (skip remote updates)
+
+/* ════════════════════════════════════════════
+   FIREBASE INIT
+════════════════════════════════════════════ */
+
+function isConfigured() {
+  return FIREBASE_CONFIG.apiKey && FIREBASE_CONFIG.apiKey !== 'INSERISCI_QUI';
+}
+
+if (!isConfigured()) {
+  document.getElementById('setup-banner').style.display = 'flex';
+  document.getElementById('toolbar').style.display = 'none';
+} else {
+  firebase.initializeApp(FIREBASE_CONFIG);
+  db     = firebase.firestore();
+  colRef = db.collection(COLLECTION);
+
+  // Enable offline persistence
+  db.enablePersistence({ synchronizeTabs: true }).catch(() => {});
+
+  // Monitor connection
+  db.collection('.info').doc('connected')  // Firestore doesn't expose connected ref like RTDB
+  // Instead: use onSnapshot error/success to gauge connectivity
+  setConnStatus('syncing');
+  startRealtimeListener();
+}
+
+function setConnStatus(status, count) {
+  connDot.className = '';
+  connDot.classList.add(status);
+  if (status === 'online')  countText.textContent = count !== undefined ? `${count} element${count===1?'o':'i'}` : 'Online';
+  if (status === 'offline') countText.textContent = 'Offline';
+  if (status === 'syncing') countText.textContent = 'Connessione…';
+}
+
+/* ════════════════════════════════════════════
+   REALTIME LISTENER
+════════════════════════════════════════════ */
+
+function startRealtimeListener() {
+  colRef.orderBy('createdAt').onSnapshot(
+    snapshot => {
+      setConnStatus('online', snapshot.size);
+
+      const seen = new Set();
+      snapshot.docChanges().forEach(change => {
+        const id   = change.doc.id;
+        const data = { ...change.doc.data(), _fid: id };
+        seen.add(id);
+
+        if (change.type === 'added') {
+          if (!domItems.has(id)) renderItem(data, false);
+        }
+        if (change.type === 'modified') {
+          if (myDragging.has(id)) return; // skip position updates while I'm dragging
+          updateItemDOM(id, data);
+        }
+        if (change.type === 'removed') {
+          removeItemDOM(id);
+        }
+      });
+
+      // Update count
+      countText.textContent = `${snapshot.size} element${snapshot.size===1?'o':'i'}`;
+    },
+    err => {
+      console.error('Firestore error', err);
+      setConnStatus('offline');
+    }
+  );
+}
+
+/* ════════════════════════════════════════════
+   FIRESTORE CRUD
+════════════════════════════════════════════ */
+
+async function fsAdd(data) {
+  setConnStatus('syncing');
+  const doc = await colRef.add({ ...data, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
+  return doc.id;
+}
+
+function fsUpdate(fid, changes) {
+  colRef.doc(fid).update(changes).catch(console.error);
+}
+
+function fsDelete(fid) {
+  colRef.doc(fid).delete().catch(console.error);
+}
+
+async function fsDeleteAll() {
+  const snap = await colRef.get();
+  const batch = db.batch();
+  snap.forEach(doc => batch.delete(doc.ref));
+  await batch.commit();
+}
+
+/* ════════════════════════════════════════════
+   INFINITE CANVAS / PAN
+════════════════════════════════════════════ */
+
+let panX=0, panY=0;
+let panning=false, panMoved=false;
+let p0x, p0y, pp0x, pp0y;
+let panHideT;
+
+function applyPan(animate) {
+  if (animate) {
+    const t = 'transform 0.6s cubic-bezier(0.4,0,0.2,1)';
+    canvasEl.style.transition = t;
+    wallEl.style.transition   = 'background-position 0.6s cubic-bezier(0.4,0,0.2,1)';
+    setTimeout(()=>{ canvasEl.style.transition=''; wallEl.style.transition=''; }, 660);
+  }
+  canvasEl.style.transform       = `translate(${panX}px,${panY}px)`;
+  wallEl.style.backgroundPosition = `${panX}px ${panY}px`;
+}
+function sc2can(sx,sy) { return { x:sx-panX, y:sy-panY }; }
+function vpCenter()    { return sc2can(window.innerWidth/2, window.innerHeight/2); }
+
+function savePan() { try { localStorage.setItem(PAN_KEY, JSON.stringify({x:panX,y:panY})); } catch(e){} }
+function loadPan() {
+  try { const p=JSON.parse(localStorage.getItem(PAN_KEY)||'null'); if(p&&isFinite(p.x)) { panX=p.x; panY=p.y; } } catch(e){}
+  applyPan();
+}
+function showPanInd() {
+  panIndEl.style.opacity='1';
+  panIndEl.textContent=`${Math.round(-panX)}, ${Math.round(-panY)}`;
+  clearTimeout(panHideT);
+  panHideT=setTimeout(()=>panIndEl.style.opacity='0', 1800);
+}
+
+wallEl.addEventListener('pointerdown', e=>{
+  if (e.target.closest('.item,.panel,#toolbar,#ctx-menu,#btn-home,#admin-overlay')) return;
+  panning=true; panMoved=false;
+  wallEl.setPointerCapture(e.pointerId); wallEl.classList.add('panning');
+  p0x=e.clientX; p0y=e.clientY; pp0x=panX; pp0y=panY;
+});
+wallEl.addEventListener('pointermove', e=>{
+  if (!panning) return;
+  const dx=e.clientX-p0x, dy=e.clientY-p0y;
+  if (!panMoved&&(Math.abs(dx)>3||Math.abs(dy)>3)) panMoved=true;
+  panX=pp0x+dx; panY=pp0y+dy; applyPan(); showPanInd();
+});
+wallEl.addEventListener('pointerup', ()=>{ if(!panning) return; panning=false; wallEl.classList.remove('panning'); if(panMoved) savePan(); });
+wallEl.addEventListener('pointercancel', ()=>{ panning=false; wallEl.classList.remove('panning'); });
+wallEl.addEventListener('dblclick', e=>{ if(e.target.closest('.item')||panMoved) return; const cp=sc2can(e.clientX,e.clientY); doAddPostIt(cp.x-96,cp.y-96); showToast('Post-it aggiunto! 📝'); });
+document.getElementById('btn-home').addEventListener('click', ()=>{ panX=0; panY=0; applyPan(true); savePan(); showPanInd(); });
+
+/* ════════════════════════════════════════════
+   AUDIO
+════════════════════════════════════════════ */
+
+function getACtx() { if(!audioCtx) audioCtx=new(window.AudioContext||window.webkitAudioContext)(); return audioCtx; }
+function playPop(p=1) {
+  if(!soundOn) return;
+  try { const c=getACtx(),o=c.createOscillator(),g=c.createGain(); o.connect(g); g.connect(c.destination); o.type='sine'; o.frequency.setValueAtTime(540*p,c.currentTime); o.frequency.exponentialRampToValueAtTime(220*p,c.currentTime+0.18); g.gain.setValueAtTime(0.18,c.currentTime); g.gain.exponentialRampToValueAtTime(0.001,c.currentTime+0.22); o.start(); o.stop(c.currentTime+0.22); } catch(e){}
+}
+function playPaper() {
+  if(!soundOn) return;
+  try { const c=getACtx(),buf=c.createBuffer(1,c.sampleRate*0.12,c.sampleRate),d=buf.getChannelData(0); for(let i=0;i<d.length;i++) d[i]=(Math.random()*2-1)*0.35; const s=c.createBufferSource(),f=c.createBiquadFilter(),g=c.createGain(); s.buffer=buf; f.type='bandpass'; f.frequency.value=2800; f.Q.value=0.8; s.connect(f); f.connect(g); g.connect(c.destination); g.gain.setValueAtTime(0.22,c.currentTime); g.gain.exponentialRampToValueAtTime(0.001,c.currentTime+0.12); s.start(); s.stop(c.currentTime+0.12); } catch(e){}
+}
+function playDrop() {
+  if(!soundOn) return;
+  try { const c=getACtx(),o=c.createOscillator(),g=c.createGain(); o.connect(g); g.connect(c.destination); o.type='triangle'; o.frequency.setValueAtTime(180,c.currentTime); o.frequency.exponentialRampToValueAtTime(90,c.currentTime+0.15); g.gain.setValueAtTime(0.12,c.currentTime); g.gain.exponentialRampToValueAtTime(0.001,c.currentTime+0.18); o.start(); o.stop(c.currentTime+0.18); } catch(e){}
+}
+
+/* ════════════════════════════════════════════
+   IMAGE COMPRESSION
+════════════════════════════════════════════ */
+
+function compressImage(dataUrl) {
+  return new Promise(resolve=>{
+    const img=new Image();
+    img.onload=()=>{
+      const MAX=480; let w=img.width, h=img.height;
+      if(w>MAX||h>MAX){ if(w>h){h=Math.round(h*MAX/w);w=MAX;}else{w=Math.round(w*MAX/h);h=MAX;} }
+      const c=document.createElement('canvas'); c.width=w; c.height=h;
+      c.getContext('2d').drawImage(img,0,0,w,h);
+      resolve(c.toDataURL('image/jpeg',0.72));
+    };
+    img.src=dataUrl;
+  });
+}
+
+/* ════════════════════════════════════════════
+   DRAG
+════════════════════════════════════════════ */
+
+function makeDraggable(wrap, getData) {
+  let dragging=false, moved=false, startCX, startCY, startMX, startMY;
+
+  wrap.addEventListener('pointerdown', e=>{
+    if(e.target.matches('textarea,[contenteditable]')||e.target.classList.contains('del-btn')) return;
+    e.preventDefault(); e.stopPropagation();
+    const data=getData();
+    dragging=true; moved=false;
+    wrap.setPointerCapture(e.pointerId); wrap.classList.add('dragging');
+    startCX=data.x; startCY=data.y; startMX=e.clientX; startMY=e.clientY;
+    wrap.style.zIndex = ++maxZ;
+    myDragging.add(data._fid);
+    closeAllPanels(); closeCtx();
+  });
+
+  wrap.addEventListener('pointermove', e=>{
+    if(!dragging) return;
+    e.preventDefault(); e.stopPropagation();
+    moved=true;
+    const data=getData();
+    data.x=startCX+(e.clientX-startMX);
+    data.y=startCY+(e.clientY-startMY);
+    wrap.style.left=data.x+'px';
+    wrap.style.top =data.y+'px';
+  });
+
+  const onUp=()=>{
+    if(!dragging) return;
+    dragging=false; wrap.classList.remove('dragging');
+    const data=getData();
+    myDragging.delete(data._fid);
+    if(moved){
+      playDrop();
+      wrap.classList.remove('anim-land'); void wrap.offsetWidth;
+      wrap.classList.add('anim-land');
+      setTimeout(()=>wrap.classList.remove('anim-land'),500);
+      // Persist new position to Firestore
+      if(data._fid) fsUpdate(data._fid, { x:Math.round(data.x), y:Math.round(data.y), z:maxZ });
+    }
+  };
+  wrap.addEventListener('pointerup', onUp);
+  wrap.addEventListener('pointercancel', ()=>{ dragging=false; wrap.classList.remove('dragging'); const d=getData(); myDragging.delete(d._fid); });
+}
+
+/* ════════════════════════════════════════════
+   RENDER ITEM
+════════════════════════════════════════════ */
+
+const rnd=(a,b)=>Math.random()*(b-a)+a;
+
+function renderItem(data, animate=true) {
+  if(!data||!data._fid) return;
+  if(domItems.has(data._fid)) return; // already exists
+
+  // ensure numeric defaults
+  data.x   = isFinite(data.x)   ? data.x   : 100;
+  data.y   = isFinite(data.y)   ? data.y   : 100;
+  data.rot = isFinite(data.rot) ? data.rot : 0;
+  data.z   = isFinite(data.z)   ? data.z   : ++maxZ;
+  if(data.z > maxZ) maxZ=data.z;
+
+  const wrap=document.createElement('div');
+  wrap.className='item';
+  wrap.dataset.fid=data._fid;
+  wrap.style.left=data.x+'px'; wrap.style.top=data.y+'px';
+  wrap.style.zIndex=data.z;
+  wrap.style.setProperty('--rot',data.rot+'deg');
+  wrap.style.transform=`rotate(${data.rot}deg)`;
+
+  const isMine = data.ownerId===MY_ID;
+
+  /* ─ Content ─ */
+  if(data.type==='postit'){
+    const inner=document.createElement('div');
+    inner.className='postit'; inner.style.background=data.color||'#FFE566';
+    const ta=document.createElement('textarea');
+    ta.placeholder='Scrivi qualcosa…'; ta.value=data.text||'';
+    if(!isMine) { ta.readOnly=true; ta.style.cursor='default'; }
+    let textTimer;
+    ta.addEventListener('input',()=>{
+      data.text=ta.value;
+      clearTimeout(textTimer);
+      textTimer=setTimeout(()=>{ if(data._fid) fsUpdate(data._fid,{text:data.text}); },600);
+    });
+    ta.addEventListener('pointerdown',e=>e.stopPropagation());
+    ta.addEventListener('touchstart',e=>e.stopPropagation(),{passive:true});
+    const fold=document.createElement('div'); fold.className='postit-fold';
+    inner.appendChild(ta); inner.appendChild(fold); wrap.appendChild(inner);
+
+  } else if(data.type==='sticker'){
+    const inner=document.createElement('div');
+    inner.className='sticker-wrap'; inner.textContent=data.emoji||'⭐';
+    wrap.appendChild(inner);
+
+  } else if(data.type==='photo'){
+    const inner=document.createElement('div'); inner.className='photo-wrap';
+    const img=document.createElement('img'); img.src=data.photo||''; img.draggable=false;
+    const cap=document.createElement('div');
+    cap.className='photo-caption'; cap.contentEditable=isMine?'true':'false';
+    cap.dataset.placeholder='Didascalia…'; cap.textContent=data.caption||'';
+    let capTimer;
+    cap.addEventListener('input',()=>{
+      data.caption=cap.textContent;
+      clearTimeout(capTimer);
+      capTimer=setTimeout(()=>{ if(data._fid) fsUpdate(data._fid,{caption:data.caption}); },600);
+    });
+    cap.addEventListener('pointerdown',e=>e.stopPropagation());
+    inner.appendChild(img); inner.appendChild(cap); wrap.appendChild(inner);
+  }
+
+  /* ─ Delete button (own items only) ─ */
+  if(isMine){
+    const del=document.createElement('button');
+    del.className='del-btn'; del.textContent='✕';
+    del.addEventListener('pointerdown',e=>e.stopPropagation());
+    del.addEventListener('click',e=>{ e.stopPropagation(); doRemove(data._fid, wrap); });
+    wrap.appendChild(del);
+
+    /* Context menu */
+    let longT;
+    wrap.addEventListener('contextmenu',e=>{ e.preventDefault(); openCtx(e.clientX,e.clientY,data,wrap); });
+    wrap.addEventListener('pointerdown',()=>{ longT=setTimeout(()=>openCtx(null,null,data,wrap),660); });
+    wrap.addEventListener('pointerup',  ()=>clearTimeout(longT));
+    wrap.addEventListener('pointermove',()=>clearTimeout(longT));
+  }
+
+  makeDraggable(wrap, ()=>data);
+  canvasEl.appendChild(wrap);
+  domItems.set(data._fid, { data, el:wrap });
+
+  if(animate){
+    wrap.classList.add('anim-pop');
+    setTimeout(()=>wrap.classList.remove('anim-pop'),600);
+    playPaper();
+  }
+}
+
+function updateItemDOM(fid, newData) {
+  const entry=domItems.get(fid);
+  if(!entry) return;
+  const {data,el}=entry;
+  // Update position/z (smooth)
+  if(newData.x!==undefined){ data.x=newData.x; el.style.left=newData.x+'px'; }
+  if(newData.y!==undefined){ data.y=newData.y; el.style.top=newData.y+'px'; }
+  if(newData.z!==undefined){ data.z=newData.z; el.style.zIndex=newData.z; if(newData.z>maxZ) maxZ=newData.z; }
+  // Update postit text
+  if(newData.text!==undefined && data.text!==newData.text){
+    data.text=newData.text;
+    const ta=el.querySelector('textarea');
+    if(ta && document.activeElement!==ta) ta.value=newData.text;
+  }
+  // Update postit color
+  if(newData.color && newData.color!==data.color){
+    data.color=newData.color;
+    const pi=el.querySelector('.postit');
+    if(pi) pi.style.background=newData.color;
+  }
+  // Update photo caption
+  if(newData.caption!==undefined && newData.caption!==data.caption){
+    data.caption=newData.caption;
+    const cap=el.querySelector('.photo-caption');
+    if(cap && document.activeElement!==cap) cap.textContent=newData.caption;
+  }
+  // Merge remaining fields
+  Object.assign(data, newData);
+}
+
+function removeItemDOM(fid) {
+  const entry=domItems.get(fid);
+  if(!entry) return;
+  const el=entry.el;
+  el.style.transition='transform 0.22s ease,opacity 0.22s ease';
+  el.style.transform=`rotate(${el.style.getPropertyValue('--rot')}) scale(0.35)`;
+  el.style.opacity='0';
+  setTimeout(()=>el.remove(),240);
+  domItems.delete(fid);
+}
+
+/* ════════════════════════════════════════════
+   CREATE ACTIONS
+════════════════════════════════════════════ */
+
+async function doAddPostIt(cx,cy){
+  const data={
+    type:'postit', x:Math.round(cx), y:Math.round(cy),
+    rot:rnd(-6,6), z:++maxZ, color:selColor, text:'', ownerId:MY_ID
+  };
+  const fid=await fsAdd(data);
+  // Focus the textarea once the snapshot adds it
+  setTimeout(()=>{
+    const entry=domItems.get(fid);
+    if(entry){ const ta=entry.el.querySelector('textarea'); if(ta) ta.focus(); }
+  },300);
+}
+
+async function doAddSticker(cx,cy,emoji){
+  const data={
+    type:'sticker', x:Math.round(cx), y:Math.round(cy),
+    rot:rnd(-14,14), z:++maxZ, emoji, ownerId:MY_ID
+  };
+  await fsAdd(data);
+  playPop(1.1);
+}
+
+async function doAddPhoto(cx,cy,url){
+  const compressed=await compressImage(url);
+  const data={
+    type:'photo', x:Math.round(cx), y:Math.round(cy),
+    rot:rnd(-4,4), z:++maxZ, photo:compressed, caption:'', ownerId:MY_ID
+  };
+  await fsAdd(data);
+}
+
+function doRemove(fid, el){
+  playPop(1.3);
+  fsDelete(fid);
+  // DOM removal will come from the onSnapshot 'removed' event
+}
+
+/* ════════════════════════════════════════════
+   PANELS
+════════════════════════════════════════════ */
+
+function closeAllPanels(){
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('visible'));
+  document.querySelectorAll('.tb-btn').forEach(b=>b.classList.remove('active'));
+}
+function togglePanel(id,btnId){
+  const open=document.getElementById(id).classList.contains('visible');
+  closeAllPanels();
+  if(!open){ document.getElementById(id).classList.add('visible'); if(btnId) document.getElementById(btnId).classList.add('active'); }
+}
+document.addEventListener('pointerdown',e=>{ if(!e.target.closest('.panel,.tb-btn')) closeAllPanels(); });
+
+/* ════════════════════════════════════════════
+   CONTEXT MENU
+════════════════════════════════════════════ */
+
+function openCtx(x,y,data,el){
+  ctxTgt={data,el};
+  const menu=document.getElementById('ctx-menu');
+  document.getElementById('ctx-color').style.display=data.type==='postit'?'flex':'none';
+  menu.classList.add('open');
+  const mx=x??parseInt(el.style.left)+panX+40, my=y??parseInt(el.style.top)+panY+40;
+  menu.style.left=Math.min(mx,window.innerWidth-170)+'px';
+  menu.style.top =Math.min(my,window.innerHeight-110)+'px';
+}
+function closeCtx(){ document.getElementById('ctx-menu').classList.remove('open'); ctxTgt=null; }
+document.getElementById('ctx-del').addEventListener('click',()=>{ if(ctxTgt) doRemove(ctxTgt.data._fid,ctxTgt.el); closeCtx(); });
+document.getElementById('ctx-color').addEventListener('click',()=>{ closeCtx(); togglePanel('color-panel','btn-color'); });
+document.addEventListener('pointerdown',e=>{ if(!e.target.closest('#ctx-menu')) closeCtx(); });
+
+/* ════════════════════════════════════════════
+   STICKER GRID
+════════════════════════════════════════════ */
+
+const grid=document.getElementById('sticker-grid');
+EMOJIS.forEach(em=>{
+  const d=document.createElement('div'); d.className='sopt'; d.textContent=em;
+  d.addEventListener('click',()=>{
+    const cp=vpCenter(); doAddSticker(cp.x-30,cp.y-30,em);
+    closeAllPanels(); showToast(`${em} aggiunto!`);
+  });
+  grid.appendChild(d);
+});
+
+/* ════════════════════════════════════════════
+   COLOR DOTS
+════════════════════════════════════════════ */
+
+document.querySelectorAll('.cdot').forEach(dot=>{
+  dot.addEventListener('click',()=>{
+    document.querySelectorAll('.cdot').forEach(d=>d.classList.remove('sel'));
+    dot.classList.add('sel');
+    selColor=dot.dataset.c;
+    if(ctxTgt&&ctxTgt.data.type==='postit'){
+      fsUpdate(ctxTgt.data._fid,{color:selColor});
+    }
+    playPop(1.2);
+  });
+});
+
+/* ════════════════════════════════════════════
+   TOOLBAR
+════════════════════════════════════════════ */
+
+document.getElementById('btn-postit').addEventListener('click',()=>{ const cp=vpCenter(); doAddPostIt(cp.x-96,cp.y-96); showToast('Post-it aggiunto! 📝'); closeAllPanels(); });
+document.getElementById('btn-color').addEventListener('click',  ()=>togglePanel('color-panel','btn-color'));
+document.getElementById('btn-sticker').addEventListener('click',()=>togglePanel('sticker-panel','btn-sticker'));
+document.getElementById('btn-photo').addEventListener('click',  ()=>document.getElementById('photo-input').click());
+
+document.getElementById('photo-input').addEventListener('change',async e=>{
+  const file=e.target.files[0]; if(!file) return;
+  showToast('Compressione foto…');
+  const reader=new FileReader();
+  reader.onload=async ev=>{
+    const cp=vpCenter();
+    await doAddPhoto(cp.x-92,cp.y-110,ev.target.result);
+    showToast('Foto aggiunta! 📷');
+  };
+  reader.readAsDataURL(file); e.target.value='';
+});
+
+document.getElementById('btn-sound').addEventListener('click',()=>{
+  soundOn=!soundOn;
+  document.getElementById('btn-sound').textContent=soundOn?'🔊':'🔇';
+  showToast(soundOn?'Suoni attivi 🔊':'Suoni disattivati 🔇');
+});
+
+document.getElementById('btn-clear').addEventListener('click',()=>{
+  if(!domItems.size) return;
+  openAdminModal();
+});
+
+/* ════════════════════════════════════════════
+   ADMIN MODAL
+════════════════════════════════════════════ */
+
+const adminOverlay = document.getElementById('admin-overlay');
+const adminInput   = document.getElementById('admin-input');
+const adminErr     = document.getElementById('admin-err');
+
+function openAdminModal(){ adminInput.value=''; adminErr.textContent=''; adminOverlay.classList.add('open'); setTimeout(()=>adminInput.focus(),80); }
+function closeAdminModal(){ adminOverlay.classList.remove('open'); }
+
+document.getElementById('admin-cancel').addEventListener('click',closeAdminModal);
+document.getElementById('admin-confirm').addEventListener('click',async()=>{
+  if(adminInput.value===ADMIN_CODE){
+    closeAdminModal();
+    showToast('Cancellazione in corso… 🧹');
+    await fsDeleteAll();
+    showToast('Muro pulito! ✨');
+    playPop(0.7);
+  } else {
+    adminErr.textContent='Codice errato. Riprova!';
+    adminInput.style.borderColor='#e03030';
+    adminInput.addEventListener('input',()=>{ adminErr.textContent=''; adminInput.style.borderColor='#eee'; },{once:true});
+    playPop(0.4);
+  }
+});
+adminInput.addEventListener('keydown',e=>{ if(e.key==='Enter') document.getElementById('admin-confirm').click(); if(e.key==='Escape') closeAdminModal(); });
+adminOverlay.addEventListener('pointerdown',e=>{ if(e.target===adminOverlay) closeAdminModal(); });
+
+/* ════════════════════════════════════════════
+   TOAST
+════════════════════════════════════════════ */
+
+let toastT;
+function showToast(msg){
+  const t=document.getElementById('toast');
+  t.textContent=msg; t.classList.add('show');
+  clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove('show'),2200);
+}
+
+/* ════════════════════════════════════════════
+   AMBIENT
+════════════════════════════════════════════ */
+
+function spawnMote(){
+  const m=document.createElement('div'); m.className='mote';
+  const sz=rnd(2,5);
+  m.style.cssText=`width:${sz}px;height:${sz}px;left:${rnd(0,window.innerWidth)}px;top:${rnd(window.innerHeight*0.2,window.innerHeight*0.9)}px;--dx:${rnd(-80,80)}px;--dy:${rnd(-130,-20)}px;animation-duration:${rnd(9,20)}s;animation-delay:${rnd(0,10)}s;opacity:0`;
+  document.body.appendChild(m);
+  setTimeout(()=>m.remove(),22000);
+}
+for(let i=0;i<10;i++) spawnMote();
+setInterval(()=>{ if(document.querySelectorAll('.mote').length<14) spawnMote(); },3200);
+
+setInterval(()=>{
+  if(!domItems.size||panning) return;
+  const entries=[...domItems.values()];
+  const {data,el}=entries[Math.floor(Math.random()*entries.length)];
+  if(el.classList.contains('dragging')) return;
+  const nudge=rnd(-0.7,0.7);
+  el.style.transition='transform 0.45s ease';
+  el.style.transform=`rotate(${data.rot+nudge}deg)`;
+  setTimeout(()=>{ el.style.transform=`rotate(${data.rot}deg)`; setTimeout(()=>el.style.transition='',500); },700);
+},4800);
+
+/* ════════════════════════════════════════════
+   BOOT
+════════════════════════════════════════════ */
+
+loadPan();
+showPanInd();
+
+if(!localStorage.getItem(VIS_KEY)){
+  localStorage.setItem(VIS_KEY,'1');
+  const h=document.createElement('div'); h.id='hint';
+  h.textContent='↔ Trascina il muro per esplorare · Doppio click per un post-it!';
+  document.body.appendChild(h);
+  setTimeout(()=>h.remove(),7000);
+}
+</script>
+</body>
+</html>
